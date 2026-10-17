@@ -21,7 +21,7 @@
   #status { max-width: 320px; }
   .spin { width: 36px; height: 36px; border-radius: 50%; border: 4px solid var(--hint);
     border-top-color: var(--accent); animation: r 0.9s linear infinite; }
-  .spin[hidden], button[hidden] { display: none; }
+  .spin[hidden] { display: none; }
   @keyframes r { to { transform: rotate(360deg); } }
   button { font: inherit; border: 0; border-radius: 12px; padding: 12px 24px;
     background: var(--accent); color: var(--accent-fg); }
@@ -31,56 +31,70 @@
 <main>
   <div class="spin" id="spin"></div>
   <div id="status" role="status">Joylashuv aniqlanmoqda...</div>
-  <button id="settings" hidden>Sozlamalarni ochish</button>
 </main>
 <script>
 (function () {
   var tg = window.Telegram && Telegram.WebApp;
   var statusEl = document.getElementById("status");
   var spin = document.getElementById("spin");
-  var settingsBtn = document.getElementById("settings");
 
   function show(text, busy) {
     statusEl.textContent = text;
     spin.hidden = !busy;
   }
+  var done = false;
   function send(lat, lon, acc) {
+    if (done) { return; }
+    done = true;
     show("Yuborilmoqda...", true);
     tg.sendData(JSON.stringify({
       v: 1, lat: lat, lon: lon,
       acc: (typeof acc === "number") ? acc : null
     }));
   }
-  function viaBrowser() {
-    if (!navigator.geolocation) {
-      return show("Telegram'ni yangilang yoki joylashuvni yoqing.", false);
-    }
-    navigator.geolocation.getCurrentPosition(function (p) {
-      send(p.coords.latitude, p.coords.longitude, p.coords.accuracy);
-    }, function () {
-      show("Telegram'ni yangilang yoki joylashuvni yoqing.", false);
-    }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+  // never close silently: the bot replies with the reason
+  function fail(code) {
+    if (done) { return; }
+    done = true;
+    tg.sendData(JSON.stringify({ v: 1, err: code }));
   }
 
   if (!tg) { return show("Bu sahifa faqat Telegram ichida ishlaydi.", false); }
   tg.ready();
   tg.expand();
+
+  // 1) a FRESH fix from the device (maximumAge 0). Telegram's LocationManager
+  //    can return a minutes-old cached point (measured 10-17: same coords x15).
+  // 2) LocationManager only if the fresh fix fails; 3) hard stop at 20 s.
   var lm = tg.LocationManager;
+  var lmFix = null, lmDone = false, browserFailed = false;
+  function fallback() {
+    if (lmFix) { return send(lmFix.latitude, lmFix.longitude, lmFix.horizontal_accuracy); }
+    if (lmDone) { fail(lm && lm.isAccessRequested && !lm.isAccessGranted ? "denied" : "nogps"); }
+  }
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(function (p) {
+      send(p.coords.latitude, p.coords.longitude, p.coords.accuracy);
+    }, function () { browserFailed = true; fallback(); },
+    { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 });
+  } else { browserFailed = true; }
+
   // the SDK defines LocationManager even on clients older than Bot API 8.0
-  if (!lm || !tg.isVersionAtLeast || !tg.isVersionAtLeast("8.0")) { return viaBrowser(); }
-  lm.init(function () {
-    if (!lm.isLocationAvailable) { return viaBrowser(); }
-    lm.getLocation(function (data) {
-      if (data === null) {
-        show("Joylashuvga ruxsat bering", false);
-        settingsBtn.hidden = false;
-        settingsBtn.onclick = function () { lm.openSettings(); };
-        return;
-      }
-      var acc = (typeof data.horizontal_accuracy === "number") ? data.horizontal_accuracy : null;
-      send(data.latitude, data.longitude, acc);
+  if (lm && tg.isVersionAtLeast && tg.isVersionAtLeast("8.0")) {
+    lm.init(function () {
+      if (!lm.isLocationAvailable) { lmDone = true; return browserFailed && fallback(); }
+      lm.getLocation(function (data) {
+        lmFix = data || null;
+        lmDone = true;
+        if (browserFailed) { fallback(); }
+      });
     });
-  });
+  } else { lmDone = true; if (browserFailed) { fallback(); } }
+
+  setTimeout(function () {
+    if (lmFix) { return send(lmFix.latitude, lmFix.longitude, lmFix.horizontal_accuracy); }
+    fail("timeout");
+  }, 20000);
 })();
 </script>
 </body>
