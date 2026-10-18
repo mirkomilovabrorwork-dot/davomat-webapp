@@ -21,7 +21,7 @@
   #status { max-width: 320px; }
   .spin { width: 36px; height: 36px; border-radius: 50%; border: 4px solid var(--hint);
     border-top-color: var(--accent); animation: r 0.9s linear infinite; }
-  .spin[hidden] { display: none; }
+  .spin[hidden], button[hidden] { display: none; }
   @keyframes r { to { transform: rotate(360deg); } }
   button { font: inherit; border: 0; border-radius: 12px; padding: 12px 24px;
     background: var(--accent); color: var(--accent-fg); }
@@ -31,6 +31,7 @@
 <main>
   <div class="spin" id="spin"></div>
   <div id="status" role="status">Joylashuv aniqlanmoqda...</div>
+  <button id="settings" hidden>Ruxsat berish</button>
 </main>
 <script>
 (function () {
@@ -70,7 +71,20 @@
   var lmFix = null, lmDone = false, browserFailed = false;
   function fallback() {
     if (lmFix) { return send(lmFix.latitude, lmFix.longitude, lmFix.horizontal_accuracy); }
-    if (lmDone) { fail(lm && lm.isAccessRequested && !lm.isAccessGranted ? "denied" : "nogps"); }
+    if (!lmDone) { return; }
+    if (lm && lm.isAccessRequested && !lm.isAccessGranted) { return denied(); }
+    fail("nogps");
+  }
+  // the bot itself was denied location inside Telegram: phone settings cannot fix it,
+  // only Telegram's per-bot setting can, and openSettings() needs a user tap
+  function denied() {
+    if (done) { return; }
+    done = true;
+    show("Botga joylashuv ruxsati berilmagan. Pastdagi tugmani bosing, ruxsat bering, " +
+         "so'ng oynani yopib «Keldim / Ketdim»ni qayta bosing.", false);
+    var btn = document.getElementById("settings");
+    btn.hidden = false;
+    btn.onclick = function () { lm.openSettings(); };
   }
   if (navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(function (p) {
