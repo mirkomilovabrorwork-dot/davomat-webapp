@@ -86,11 +86,26 @@
     btn.hidden = false;
     btn.onclick = function () { lm.openSettings(); };
   }
+  // Indoors the first fix is often a coarse Wi-Fi/cell guess (measured 10-21:
+  // the same +-200 m point 7 taps in a row, real GPS +-32 m a minute later).
+  // Watch for up to 15 s: send at once when a fix is good, else the best one seen.
+  var GOOD_M = 50, WAIT_MS = 15000, best = null, watchId = null;
+  function sendBest() {
+    if (watchId !== null) { navigator.geolocation.clearWatch(watchId); }
+    send(best.coords.latitude, best.coords.longitude, best.coords.accuracy);
+  }
   if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(function (p) {
-      send(p.coords.latitude, p.coords.longitude, p.coords.accuracy);
-    }, function () { browserFailed = true; fallback(); },
-    { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 });
+    watchId = navigator.geolocation.watchPosition(function (p) {
+      if (done) { return; }
+      if (!best || p.coords.accuracy < best.coords.accuracy) { best = p; }
+      if (p.coords.accuracy <= GOOD_M) { return sendBest(); }
+      show("GPS ushlanyapti, biroz kuting... (aniqlik ±" + Math.round(p.coords.accuracy) + " m)", true);
+    }, function () {
+      if (done) { return; }
+      if (best) { return sendBest(); }
+      browserFailed = true; fallback();
+    }, { enableHighAccuracy: true, timeout: WAIT_MS, maximumAge: 0 });
+    setTimeout(function () { if (best && !done) { sendBest(); } }, WAIT_MS);
   } else { browserFailed = true; }
 
   // the SDK defines LocationManager even on clients older than Bot API 8.0
