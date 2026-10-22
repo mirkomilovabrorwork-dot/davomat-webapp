@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPS sinov</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root { color-scheme: light dark; --bg: var(--tg-theme-bg-color, #fff); --fg: var(--tg-theme-text-color, #111);
+          --muted: var(--tg-theme-hint-color, #777); --accent: var(--tg-theme-button-color, #2481cc); }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg);
+         font: 15px/1.45 -apple-system, system-ui, sans-serif; }
+  h1 { font-size: 18px; margin: 0 0 8px; }
+  .big { font-size: 22px; font-weight: 600; margin: 8px 0; }
+  .muted { color: var(--muted); font-size: 13px; }
+  button { min-height: 44px; padding: 0 16px; border: 0; border-radius: 10px; background: var(--accent);
+           color: #fff; font-size: 15px; margin: 8px 8px 0 0; }
+  ol { padding-left: 20px; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>GPS fon sinovi</h1>
+<p class="muted">Sahifani oching, keyin Telegram'ni yopib yoki boshqa ilovaga o'tib 10 daqiqa yuring. Qaytib shu sahifani oching: sahifa yopiq paytda signal kelgan-kelmaganini ko'rasiz.</p>
+<div class="big" id="sum">Yuklanmoqda...</div>
+<div class="muted" id="sub"></div>
+<button id="clear">Tozalash</button>
+<ol id="log"></ol>
+<script>
+(function () {
+  var OFFICE = [41.289703, 69.256332], KEY = "gpsTestLog";
+  var tg = window.Telegram && Telegram.WebApp;
+  if (tg) { tg.ready(); tg.expand(); }
+  function load() { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { return []; } }
+  function save(a) { try { localStorage.setItem(KEY, JSON.stringify(a.slice(-400))); } catch (e) {} }
+  var log = load();
+  function dist(lat, lon) {
+    var R = 6371000, r = Math.PI / 180, dLat = (lat - OFFICE[0]) * r, dLon = (lon - OFFICE[1]) * r;
+    var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(OFFICE[0] * r) * Math.cos(lat * r) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    return Math.round(2 * R * Math.asin(Math.sqrt(a)));
+  }
+  function add(e) { e.t = Date.now(); log.push(e); save(log); render(); }
+  function hm(t) { var d = new Date(t); return d.toTimeString().slice(0, 8); }
+  function render() {
+    var fixes = log.filter(function (e) { return e.k === "gps"; });
+    var hidden = log.filter(function (e) { return e.k === "gps" && e.h; }).length;
+    var gap = 0;
+    for (var i = 1; i < fixes.length; i++) { gap = Math.max(gap, fixes[i].t - fixes[i - 1].t); }
+    document.getElementById("sum").textContent =
+      fixes.length + " ta signal, shundan yopiq paytda: " + hidden;
+    document.getElementById("sub").textContent =
+      "Eng uzun tanaffus: " + Math.round(gap / 60000) + " daq";
+    var ol = document.getElementById("log"); ol.innerHTML = "";
+    log.slice(-60).reverse().forEach(function (e) {
+      var li = document.createElement("li");
+      li.textContent = hm(e.t) + " " + (e.k === "gps" ? ("joy: " + e.d + " m, ±" + e.a + " m" + (e.h ? " (YOPIQ)" : ""))
+                                         : e.k === "vis" ? ("sahifa: " + e.v) : e.k);
+      ol.appendChild(li);
+    });
+  }
+  document.getElementById("clear").onclick = function () { log = []; save(log); render(); };
+  document.addEventListener("visibilitychange", function () { add({ k: "vis", v: document.visibilityState }); });
+  add({ k: "ochildi" });
+  if (navigator.geolocation) {
+    navigator.geolocation.watchPosition(function (p) {
+      add({ k: "gps", d: dist(p.coords.latitude, p.coords.longitude), a: Math.round(p.coords.accuracy),
+            h: document.visibilityState === "hidden" ? 1 : 0 });
+    }, function (err) { add({ k: "xato: " + err.message }); },
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 });
+  } else { add({ k: "geolocation yo'q" }); }
+  // a heartbeat shows whether JS runs at all while hidden
+  setInterval(function () {
+    if (document.visibilityState === "hidden") { add({ k: "yopiq paytda ishlayapti" }); }
+  }, 60000);
+  render();
+})();
+</script>
+</body>
+</html>
